@@ -370,6 +370,79 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     o.connect(g).connect(AC.destination);
     o.start(t); o.stop(t + 0.26);
   }
+  // 통이 굴러가는 동안 계속 나는 지글지글 소리. 박자가 생기지 않도록 탁탁 튀는 소리는 무작위 간격으로 낸다.
+  let sizzle = null;
+  function startSizzle() {
+    if (muted || !AC || sizzle) return;
+    const t = AC.currentTime;
+    const src = AC.createBufferSource();
+    src.buffer = getNoise();
+    src.loop = true;
+    const hp = AC.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 2200;
+    const lp = AC.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 9000;
+    const g = AC.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05, t + 0.4);
+    src.connect(hp).connect(lp).connect(g).connect(AC.destination);
+    src.start(t);
+    sizzle = { src, g };
+  }
+  function updateSizzle() {
+    if (!sizzle) return;
+    const level = 0.035 + heat * 0.07 + Math.random() * 0.025;
+    sizzle.g.gain.setTargetAtTime(level, AC.currentTime, 0.06);
+  }
+  function stopSizzle() {
+    if (!sizzle) return;
+    const t = AC.currentTime;
+    sizzle.g.gain.cancelScheduledValues(t);
+    sizzle.g.gain.setTargetAtTime(0.0001, t, 0.03);
+    sizzle.src.stop(t + 0.2);
+    sizzle = null;
+  }
+  function crackle() {
+    if (muted || !AC) return;
+    const t = AC.currentTime;
+    const src = AC.createBufferSource();
+    src.buffer = getNoise();
+    const hp = AC.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 1500 + Math.random() * 3000;
+    const g = AC.createGain();
+    const dur = 0.008 + Math.random() * 0.025;
+    g.gain.setValueAtTime(0.04 + Math.random() * (0.08 + heat * 0.1), t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(hp).connect(g).connect(AC.destination);
+    src.start(t, Math.random() * 1.5, dur + 0.01);
+  }
+
+  // 사람 목소리 "뻥이요!": 브라우저에 내장된 한국어 음성 합성을 쓴다.
+  const speech = window.speechSynthesis || null;
+  let koVoice = null;
+  function pickVoice() {
+    if (!speech) return;
+    const voices = speech.getVoices();
+    koVoice = voices.find((v) => /^ko/i.test(v.lang)) || null;
+  }
+  if (speech) {
+    pickVoice();
+    speech.addEventListener?.('voiceschanged', pickVoice);
+  }
+  function shout() {
+    if (muted || !speech || typeof SpeechSynthesisUtterance === 'undefined') return;
+    try {
+      speech.cancel();
+      const u = new SpeechSynthesisUtterance('뻥이요!');
+      u.lang = 'ko-KR';
+      if (koVoice) u.voice = koVoice;
+      u.rate = 1.25;
+      u.pitch = 1.2;
+      u.volume = 1;
+      speech.speak(u);
+    } catch (e) { /* 음성 합성을 쓸 수 없는 환경 */ }
+  }
+
   function boom(power) {
     if (muted || !AC) return;
     const t = AC.currentTime;
@@ -442,6 +515,7 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     startT = performance.now();
     angle = -Math.PI / 2;
     startBeep();
+    startSizzle();
     ui.target.classList.add('counting');
     ui.targetSub.textContent = '속으로 세는 중… 레버 한 바퀴 = 1초';
     ui.goCue.classList.remove('go');
@@ -456,6 +530,7 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     const t = (performance.now() - startT) / 1000;
     app.classList.remove('cranking');
     ui.goCue.classList.remove('go');
+    stopSizzle();
     if (t < 0.25) {
       state = 'intro';
       ui.target.classList.remove('counting');
@@ -477,6 +552,8 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     history.push({ g, sc, d });
 
     ui.target.hidden = true;
+    stopSizzle();
+    shout();
     explode(g);
     boom(Math.max(0.25, g.speed * 0.8));
     if (g === G.golden || g === G.perfect) chime();
@@ -549,6 +626,7 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   });
   $('mute').addEventListener('click', (e) => {
     muted = !muted;
+    if (muted) { stopSizzle(); if (speech) speech.cancel(); }
     e.currentTarget.textContent = muted ? '소리 꺼짐' : '소리 켜짐';
     e.currentTarget.setAttribute('aria-pressed', String(muted));
   });
@@ -632,6 +710,8 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
       elapsed = (performance.now() - startT) / 1000;
       // 레버는 누른 순간 맨 위에서 출발해 정확히 1초에 한 바퀴 돈다
       angle = -Math.PI / 2 + elapsed * TAU;
+      updateSizzle();
+      if (Math.random() < dt * (6 + heat * 30)) crackle();
       heat = Math.min(1, elapsed / 10);
       pressure = Math.min(1, elapsed / 11) + Math.sin(time * 9) * 0.02 + (Math.random() - 0.5) * 0.04;
       if (Math.random() < dt * (2 + heat * 10)) {
