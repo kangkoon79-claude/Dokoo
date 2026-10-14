@@ -323,7 +323,7 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   let round = 1, total = 0, best = store.get();
   let history = [];
   let target = 0, startT = 0, elapsed = 0;
-  let angle = -Math.PI / 2, lastTurn = 0, heat = 0, pressure = 0;
+  let angle = -Math.PI / 2, heat = 0, pressure = 0;
   let parts = [], smokes = [], confetti = [], sparkles = [], embers = [];
   let lid = null, flash = 0, flashColor = '255,255,255', shake = 0, rays = 0, rayColor = null;
   let time = 0;
@@ -358,17 +358,17 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     return noiseBuf;
   }
-  // 레버가 한 바퀴(1초) 돌 때마다 나는 딸깍 소리. 시작 신호는 더 높고 길다.
-  function tick(start) {
+  // 레버를 누르는 순간 한 번만 나는 시작 신호음
+  function startBeep() {
     if (muted || !AC) return;
     const t = AC.currentTime;
     const o = AC.createOscillator(), g = AC.createGain();
-    o.type = start ? 'triangle' : 'square';
-    o.frequency.setValueAtTime(start ? 990 : 200 + Math.random() * 30, t);
-    g.gain.setValueAtTime(start ? 0.18 : 0.07, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + (start ? 0.25 : 0.07));
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(990, t);
+    g.gain.setValueAtTime(0.18, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
     o.connect(g).connect(AC.destination);
-    o.start(t); o.stop(t + (start ? 0.26 : 0.08));
+    o.start(t); o.stop(t + 0.26);
   }
   function boom(power) {
     if (muted || !AC) return;
@@ -441,8 +441,7 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     state = 'cranking';
     startT = performance.now();
     angle = -Math.PI / 2;
-    lastTurn = 0;
-    tick(true);
+    startBeep();
     ui.target.classList.add('counting');
     ui.targetSub.textContent = '속으로 세는 중… 레버 한 바퀴 = 1초';
     ui.goCue.classList.remove('go');
@@ -633,8 +632,6 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
       elapsed = (performance.now() - startT) / 1000;
       // 레버는 누른 순간 맨 위에서 출발해 정확히 1초에 한 바퀴 돈다
       angle = -Math.PI / 2 + elapsed * TAU;
-      const turn = Math.floor(elapsed);
-      if (turn !== lastTurn) { lastTurn = turn; tick(false); }
       heat = Math.min(1, elapsed / 10);
       pressure = Math.min(1, elapsed / 11) + Math.sin(time * 9) * 0.02 + (Math.random() - 0.5) * 0.04;
       if (Math.random() < dt * (2 + heat * 10)) {
