@@ -69,7 +69,23 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 }
 .target .num small { font-size: 0.42em; margin-left: 4px; }
 .target .sub { font-size: 20px; color: var(--paper); margin-top: 6px; text-wrap: balance; }
-.target.counting .num { opacity: 0; filter: blur(14px); transform: scale(1.35); }
+.target.counting .num { opacity: 0; transition: none; }
+
+.go-cue {
+  position: absolute; left: 0; right: 0; top: 12%;
+  text-align: center; pointer-events: none;
+  font-family: var(--display); font-size: clamp(60px, 14vw, 120px); line-height: 1.05;
+  color: var(--paper); -webkit-text-stroke: 5px var(--char); paint-order: stroke fill;
+  text-shadow: 0 6px 0 var(--char), 0 0 40px rgba(255, 243, 223, 0.5);
+  opacity: 0;
+}
+.go-cue.go { animation: go-cue 0.9s ease-out forwards; }
+@keyframes go-cue {
+  0% { opacity: 1; transform: scale(1.5); }
+  15% { opacity: 1; transform: scale(1); }
+  70% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.9); }
+}
 .target.counting .label { opacity: 0; }
 
 .bbang {
@@ -166,6 +182,7 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   .bbang.go { animation-duration: 1.2s; animation-timing-function: ease-out; }
   .card { animation: none; }
   .target .num { transition: none; }
+  .go-cue.go { animation-name: none; opacity: 0; }
 }
 </style>
 </head>
@@ -189,9 +206,10 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     <div class="sub" id="targetSub">레버를 꾹 누른 채로 돌리세요</div>
   </section>
 
+  <div id="goCue" class="go-cue" aria-hidden="true">시작!</div>
   <div id="bbang" class="bbang" aria-hidden="true">뻥이요!</div>
 
-  <p class="hint" id="hint">화면을 꾹 누르고 있으면 레버가 돌아갑니다 · 목표 시간이 됐다 싶을 때 손을 떼세요 · <kbd>스페이스</kbd>도 됩니다</p>
+  <p class="hint" id="hint">화면을 꾹 누르고 있으면 레버가 돌아갑니다 · 레버 한 바퀴가 딱 1초 · 목표 시간에 손을 떼세요 · <kbd>스페이스</kbd>도 됩니다</p>
 
   <section id="result" class="card" hidden aria-live="polite">
     <div class="grade-row"><span class="swatch" id="rSwatch"></span><h2 id="rName">완벽한 뻥튀기</h2></div>
@@ -305,7 +323,7 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   let round = 1, total = 0, best = store.get();
   let history = [];
   let target = 0, startT = 0, elapsed = 0;
-  let angle = 0, lastHalf = 0, heat = 0, pressure = 0;
+  let angle = -Math.PI / 2, lastTurn = 0, heat = 0, pressure = 0;
   let parts = [], smokes = [], confetti = [], sparkles = [], embers = [];
   let lid = null, flash = 0, flashColor = '255,255,255', shake = 0, rays = 0, rayColor = null;
   let time = 0;
@@ -340,16 +358,17 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     return noiseBuf;
   }
-  function tick() {
+  // 레버가 한 바퀴(1초) 돌 때마다 나는 딸깍 소리. 시작 신호는 더 높고 길다.
+  function tick(start) {
     if (muted || !AC) return;
     const t = AC.currentTime;
     const o = AC.createOscillator(), g = AC.createGain();
-    o.type = 'square';
-    o.frequency.setValueAtTime(180 + Math.random() * 60, t);
-    g.gain.setValueAtTime(0.035, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    o.type = start ? 'triangle' : 'square';
+    o.frequency.setValueAtTime(start ? 990 : 200 + Math.random() * 30, t);
+    g.gain.setValueAtTime(start ? 0.18 : 0.07, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (start ? 0.25 : 0.07));
     o.connect(g).connect(AC.destination);
-    o.start(t); o.stop(t + 0.06);
+    o.start(t); o.stop(t + (start ? 0.26 : 0.08));
   }
   function boom(power) {
     if (muted || !AC) return;
@@ -392,7 +411,7 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
   const ui = {
     round: $('round'), total: $('total'), best: $('best'),
     target: $('target'), targetNum: $('targetNum'), targetSub: $('targetSub'),
-    hint: $('hint'), bbang: $('bbang'), result: $('result'), final: $('final'),
+    hint: $('hint'), bbang: $('bbang'), goCue: $('goCue'), result: $('result'), final: $('final'),
   };
   function fmt(n) { return n.toLocaleString('ko-KR'); }
   function updateHud() {
@@ -421,9 +440,14 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     audio();
     state = 'cranking';
     startT = performance.now();
-    lastHalf = Math.floor(angle / Math.PI);
+    angle = -Math.PI / 2;
+    lastTurn = 0;
+    tick(true);
     ui.target.classList.add('counting');
-    ui.targetSub.textContent = '속으로 세는 중…';
+    ui.targetSub.textContent = '속으로 세는 중… 레버 한 바퀴 = 1초';
+    ui.goCue.classList.remove('go');
+    void ui.goCue.offsetWidth;
+    ui.goCue.classList.add('go');
     ui.hint.hidden = true;
     app.classList.add('cranking');
   }
@@ -432,6 +456,7 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     if (state !== 'cranking') return;
     const t = (performance.now() - startT) / 1000;
     app.classList.remove('cranking');
+    ui.goCue.classList.remove('go');
     if (t < 0.25) {
       state = 'intro';
       ui.target.classList.remove('counting');
@@ -606,9 +631,10 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
     time += dt;
     if (state === 'cranking') {
       elapsed = (performance.now() - startT) / 1000;
-      angle += dt * (6.5 + Math.min(elapsed, 10) * 0.2);
-      const half = Math.floor(angle / Math.PI);
-      if (half !== lastHalf) { lastHalf = half; tick(); }
+      // 레버는 누른 순간 맨 위에서 출발해 정확히 1초에 한 바퀴 돈다
+      angle = -Math.PI / 2 + elapsed * TAU;
+      const turn = Math.floor(elapsed);
+      if (turn !== lastTurn) { lastTurn = turn; tick(false); }
       heat = Math.min(1, elapsed / 10);
       pressure = Math.min(1, elapsed / 11) + Math.sin(time * 9) * 0.02 + (Math.random() - 0.5) * 0.04;
       if (Math.random() < dt * (2 + heat * 10)) {
